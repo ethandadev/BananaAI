@@ -1,0 +1,33 @@
+# virtualenv
+.venv/
+.venv-win/
+__pycache__/
+*.py[cod]
+
+# data and weights -- these live on HuggingFace, not in git
+data/raw/
+data/processed/
+data/tokenized/
+*.bin
+*.gguf
+*.safetensors
+checkpoints/
+runs/
+tokenizer.json
+
+# app
+app/node_modules/
+app/dist/
+
+# editors
+.vscode/
+.idea/
+.DS_Store
+
+# generated test fixtures -- rebuilt on demand by tests/harness.ensure_fixtures().
+# corpus.jsonl embeds copies of the repo source, so committing it would make
+# every code change dirty the fixture.
+tests/fixtures/corpus/
+tests/fixtures/sft.jsonl
+tests/fixtures/sft_val.jsonl
+tests/fixtures/prefs.jsonl

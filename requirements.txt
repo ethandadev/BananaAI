@@ -1,0 +1,17 @@
+# torch is installed separately from the cu128 index -- see scripts/setup_wsl.sh
+
+# data pipeline
+datasets>=3.0.0            # streaming corpus download
+zstandard>=0.23.0          # shard compression
+numpy>=1.26.0
+
+# tokenizer
+tokenizers>=0.20.0
+
+# export
+safetensors>=0.4.5
+gguf>=0.10.0               # direct GGUF writing, no llama.cpp checkout needed
+
+# logging -- swap for wandb if you prefer a hosted dashboard.
+# Optional: core/train.py runs without it and just skips the writer.
+tensorboard>=2.17.0

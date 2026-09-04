@@ -1,0 +1,22 @@
+{
+  "name": "llm-desktop",
+  "version": "0.1.0",
+  "description": "Desktop chat interface for a locally trained language model",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "dev.local.llm",
+    "productName": "LLM",
+    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "win": { "target": "nsis" }
+  }
+}

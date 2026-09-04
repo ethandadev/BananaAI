@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+  <title>LLM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="identity">
+      <span class="dot" id="status-dot" data-state="loading"></span>
+      <span class="name">LLM</span>
+      <span class="meta" id="model-meta">starting the model…</span>
+    </div>
+    <div class="controls">
+      <label class="control">
+        temperature
+        <input type="range" id="temperature" min="0" max="1.5" step="0.05" value="0.8">
+        <output id="temperature-value">0.80</output>
+      </label>
+      <label class="control">
+        max tokens
+        <input type="number" id="max-tokens" min="16" max="2048" step="16" value="256">
+      </label>
+      <button id="clear" class="ghost" type="button">Clear</button>
+    </div>
+  </header>
+
+  <main id="transcript" class="transcript">
+    <div class="empty" id="empty-state">
+      <h1>Ask it something</h1>
+      <p>This model runs entirely on your machine. Nothing is sent anywhere.</p>
+    </div>
+  </main>
+
+  <footer class="composer">
+    <textarea id="input" rows="1" placeholder="Send a message…"
+              autocomplete="off" spellcheck="false"></textarea>
+    <button id="send" type="button">Send</button>
+    <button id="stop" type="button" class="stop" hidden>Stop</button>
+  </footer>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
