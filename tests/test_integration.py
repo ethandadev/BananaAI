@@ -77,7 +77,7 @@ def full_pipeline_produces_a_generating_model():
         stages["bins"] = f"{n_train:,} train / {n_val:,} val"
 
         # 4. pretrain -----------------------------------------------------
-        mc = ModelConfig(**PRESETS["tiny"], vocab_size=vocab)
+        mc = ModelConfig(**PRESETS["test"], vocab_size=vocab)
         tc = TrainConfig(total_steps=40, warmup_steps=4, peak_lr=3e-3, min_lr=3e-4,
                          micro_batch=8, tokens_per_step=8 * mc.context_len,
                          eval_every=20, ckpt_every=20, log_every=10**9,
@@ -146,7 +146,7 @@ def a_checkpoint_survives_every_stage_boundary():
         tok_path = tmp / "tok.json"
         tok.save(str(tok_path))
 
-        mc = ModelConfig(**PRESETS["tiny"], vocab_size=tok.get_vocab_size())
+        mc = ModelConfig(**PRESETS["test"], vocab_size=tok.get_vocab_size())
         from dataclasses import asdict
         from core.model import Transformer
 

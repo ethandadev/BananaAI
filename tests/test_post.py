@@ -24,7 +24,7 @@ suite = Suite("post-training")
 test = suite.test
 
 FIXTURES = REPO / "tests" / "fixtures"
-TINY = ModelConfig(**PRESETS["tiny"], vocab_size=512)
+TINY = ModelConfig(**PRESETS["test"], vocab_size=512)
 
 _TOK = None
 

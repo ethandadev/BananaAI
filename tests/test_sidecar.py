@@ -23,7 +23,7 @@ from server.sidecar import PROTOCOL_VERSION, Engine, Sidecar
 suite = Suite("sidecar")
 test = suite.test
 
-TINY = ModelConfig(**PRESETS["tiny"], vocab_size=320)
+TINY = ModelConfig(**PRESETS["test"], vocab_size=320)
 
 
 def build(tmp):

@@ -16,7 +16,7 @@ from core.train import PRESETS
 suite = Suite("sampling")
 test = suite.test
 
-TINY = ModelConfig(**PRESETS["tiny"], vocab_size=256)
+TINY = ModelConfig(**PRESETS["test"], vocab_size=256)
 
 
 def model():

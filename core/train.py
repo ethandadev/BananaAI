@@ -32,13 +32,9 @@ import torch
 
 from .config import ModelConfig, TrainConfig
 from .dataset import TokenDataset, load_meta
+from .hardware import LADDER, Device, detect, recommend
 from .model import Transformer
 from .sample import SamplingConfig, generate
-
-# Dense bf16 peak, for the MFU readout only. CPU is deliberately absent: there
-# is no meaningful peak to divide by, and a fabricated one produces nonsense
-# like 112% utilisation.
-PEAK_TFLOPS = {"cuda": 209.0}       # RTX 5090
 
 
 def lr_at(step: int, tc: TrainConfig) -> float:
@@ -75,10 +71,11 @@ def build_optimizer(model: torch.nn.Module, tc: TrainConfig, device: str):
     ), len(decay), len(no_decay)
 
 
-def pick_device(requested: Optional[str] = None) -> str:
-    if requested:
+def pick_device(requested=None) -> Device:
+    """Resolve to a Device. Accepts a Device, a backend name, or None."""
+    if isinstance(requested, Device):
         return requested
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    return detect(requested)
 
 
 def autocast_ctx(device: str, dtype: torch.dtype):
@@ -141,14 +138,18 @@ def train(
     spike_factor: float = 3.0,
     tokenizer_path: Optional[Path] = None,
 ) -> dict:
-    device = pick_device(device)
+    hw = pick_device(device)
+    device = hw.torch_device
     torch.manual_seed(seed)
-    if device.startswith("cuda"):
+    if hw.kind == "cuda":
         torch.cuda.manual_seed_all(seed)
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+    # bf16 needs Ampere or newer. Everything else trains in fp32, which costs
+    # memory but is correct -- silently using bf16 on a card without it
+    # produces NaNs a few hundred steps in.
+    dtype = torch.bfloat16 if hw.supports_bf16 else torch.float32
     accum = tc.grad_accum_steps(mc.context_len)
     log_every = log_every or tc.log_every
 
@@ -210,7 +211,7 @@ def train(
     )
 
     print(
-        f"[setup] {device}, {raw_model.num_params() / 1e6:.1f}M params, "
+        f"[setup] {hw.describe()}, {raw_model.num_params() / 1e6:.1f}M params, "
         f"{n_decay} decayed / {n_nodecay} not, accum {accum}, "
         f"{tc.tokens_per_step:,} tokens/step, {len(train_ds):,} train tokens",
         file=sys.stderr,
@@ -260,7 +261,7 @@ def train(
             recent_losses.pop(0)
 
         if step % log_every == 0:
-            mfu = _mfu(raw_model, tc, mc, dt, device)
+            mfu = _mfu(raw_model, tc, dt, hw)
             msg = (
                 f"step {step:>6}  loss {total_loss:.4f}  lr {lr:.2e}  "
                 f"gnorm {float(grad_norm):.2f}  {dt * 1000:.0f}ms  "
@@ -330,13 +331,16 @@ def _tensorboard(out_dir: Path):
         return None
 
 
-def _mfu(model, tc: TrainConfig, mc: ModelConfig, dt: float, device: str) -> Optional[float]:
-    """Model FLOPs utilisation: 6ND per token against the device peak."""
-    peak = PEAK_TFLOPS.get(device.split(":")[0])
-    if not peak:
+def _mfu(model, tc: TrainConfig, dt: float, hw: Device) -> Optional[float]:
+    """Model FLOPs utilisation: 6ND per token against the device peak.
+
+    Only reported when the device's real peak is known. Dividing by an assumed
+    figure produces confident nonsense -- an early version printed 112%.
+    """
+    if not hw.peak_tflops:
         return None
     flops = 6 * model.num_params() * tc.tokens_per_step
-    return (flops / dt) / (peak * 1e12)
+    return (flops / dt) / (hw.peak_tflops * 1e12)
 
 
 def _log_sample(model, tokenizer, device: str, step: int, writer) -> None:
@@ -351,12 +355,12 @@ def _log_sample(model, tokenizer, device: str, step: int, writer) -> None:
         writer.add_text("sample", text, step)
 
 
-PRESETS = {
-    "tiny": dict(n_layers=4, d_model=128, n_heads=4, n_kv_heads=2, ffn_hidden=352,
-                 context_len=128),
-    "small": dict(n_layers=12, d_model=768, n_heads=12, n_kv_heads=4, ffn_hidden=2048,
-                  context_len=1024),
-}
+# The size ladder lives in core/hardware.py so the trainer, the auto-sizer and
+# the app all agree on what "small" means. `test` is extra: far too small to be
+# useful, but it keeps the CPU test suite fast.
+PRESETS = {name: dict(spec) for name, spec in LADDER}
+PRESETS["test"] = dict(n_layers=4, d_model=128, n_heads=4, n_kv_heads=2,
+                       ffn_hidden=352, context_len=128)
 
 
 def main(argv=None) -> int:
@@ -364,7 +368,12 @@ def main(argv=None) -> int:
     p.add_argument("--data", type=Path, default=Path("data/tokenized"))
     p.add_argument("--out", type=Path, default=Path("runs/base"))
     p.add_argument("--tokenizer", type=Path, default=Path("tokenizer.json"))
-    p.add_argument("--preset", choices=sorted(PRESETS), help="a smaller model, for smoke tests")
+    p.add_argument("--preset", choices=sorted(PRESETS),
+                   help="model size; omit with --auto to have one chosen for you")
+    p.add_argument("--auto", action="store_true",
+                   help="size the model to this machine automatically")
+    p.add_argument("--max-hours", type=float, default=None,
+                   help="with --auto, the wall-clock budget to plan against")
     p.add_argument("--vocab-size", type=int, default=None)
     p.add_argument("--context-len", type=int, default=None)
     p.add_argument("--steps", type=int, default=None)
@@ -381,19 +390,27 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=1337)
     args = p.parse_args(argv)
 
-    mc_kwargs = dict(PRESETS.get(args.preset, {}))
-    if args.vocab_size:
-        mc_kwargs["vocab_size"] = args.vocab_size
-    else:
+    vocab = args.vocab_size
+    if vocab is None:
         try:
-            mc_kwargs.setdefault("vocab_size", load_meta(args.data)["vocab_size"])
+            vocab = load_meta(args.data)["vocab_size"]
         except FileNotFoundError:
-            pass
-    if args.context_len:
-        mc_kwargs["context_len"] = args.context_len
-    mc = ModelConfig(**mc_kwargs)
+            vocab = ModelConfig.vocab_size
 
-    tc = TrainConfig()
+    if args.auto or (args.preset is None and not args.steps):
+        plan = recommend(device=detect(args.device), vocab_size=vocab,
+                         max_hours=args.max_hours, preset=args.preset)
+        print(os.linesep + plan.summary() + os.linesep, file=sys.stderr)
+        mc, tc = plan.model, plan.train
+        if args.context_len:
+            mc.context_len = args.context_len
+    else:
+        mc_kwargs = dict(PRESETS.get(args.preset, {}))
+        mc_kwargs["vocab_size"] = vocab
+        if args.context_len:
+            mc_kwargs["context_len"] = args.context_len
+        mc = ModelConfig(**mc_kwargs)
+        tc = TrainConfig()
     for attr, val in (
         ("total_steps", args.steps), ("warmup_steps", args.warmup), ("peak_lr", args.lr),
         ("micro_batch", args.micro_batch), ("tokens_per_step", args.tokens_per_step),

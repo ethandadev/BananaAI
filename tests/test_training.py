@@ -18,7 +18,7 @@ from core.train import Checkpointer, PRESETS, build_optimizer, evaluate, lr_at, 
 suite = Suite("training")
 test = suite.test
 
-TINY = ModelConfig(**PRESETS["tiny"], vocab_size=256)
+TINY = ModelConfig(**PRESETS["test"], vocab_size=256)
 
 
 def write_bin(path: Path, n_tokens: int, vocab: int, seed: int = 0) -> None:

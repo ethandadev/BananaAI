@@ -27,7 +27,7 @@ from export.to_safetensors import convert as to_safetensors, hf_config, rename
 suite = Suite("export")
 test = suite.test
 
-TINY = ModelConfig(**PRESETS["tiny"], vocab_size=300)
+TINY = ModelConfig(**PRESETS["test"], vocab_size=300)
 
 
 def checkpoint(tmp: Path) -> tuple[Path, Transformer]:
