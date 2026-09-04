@@ -27,6 +27,8 @@ case "$MODE" in
     TRAIN_ARGS="--preset small --steps 200 --warmup 20 --lr 1e-3 --micro-batch 8 \
                 --tokens-per-step 16384 --eval-every 50 --ckpt-every 100"
     SFT_ARGS="--epochs 1 --batch-size 4"
+    SFT_TARGET=2000
+    DPO_TARGET=800
     ;;
   full)
     LIMIT=""
@@ -34,6 +36,8 @@ case "$MODE" in
     VAL_TOKENS=10000000
     TRAIN_ARGS=""            # the defaults in core/config.py are the real run
     SFT_ARGS="--epochs 3 --batch-size 8"
+    SFT_TARGET=50000
+    DPO_TARGET=20000
     ;;
   *)
     echo "usage: $0 [smoke|full]" >&2
@@ -57,22 +61,30 @@ say "4/7  Pretraining"
 python -m core.train --data data/tokenized --out runs/base --tokenizer tokenizer.json $TRAIN_ARGS
 
 say "5/7  Instruction tuning"
+if [ ! -f data/sft/train.jsonl ]; then
+  echo "    no SFT set yet -- building one"
+  python -m data.fetch_post sft --target "$SFT_TARGET" --out data/sft
+fi
 if [ -f data/sft/train.jsonl ]; then
   # shellcheck disable=SC2086
   python -m post.sft --base runs/base/best.pt --data data/sft/train.jsonl \
       --out runs/sft --tokenizer tokenizer.json $SFT_ARGS
 else
-  echo "    no data/sft/train.jsonl -- skipping SFT and DPO"
-  exit 0
+  echo "    SFT set could not be built -- skipping SFT and DPO" >&2
+  exit 1
 fi
 
 say "6/7  Preference tuning"
+if [ ! -f data/dpo/prefs.jsonl ]; then
+  echo "    no preference set yet -- building one"
+  python -m data.fetch_post dpo --target "$DPO_TARGET" --out data/dpo
+fi
 if [ -f data/dpo/prefs.jsonl ]; then
   python -m post.dpo --sft runs/sft/sft.pt --data data/dpo/prefs.jsonl \
       --out runs/dpo --tokenizer tokenizer.json
   FINAL=runs/dpo/dpo.pt
 else
-  echo "    no data/dpo/prefs.jsonl -- skipping DPO"
+  echo "    preference set could not be built -- using the SFT checkpoint" >&2
   FINAL=runs/sft/sft.pt
 fi
 

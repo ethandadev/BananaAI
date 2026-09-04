@@ -36,7 +36,7 @@ server/     stdio JSON sidecar for the app
 app/        Electron front end
 eval/       perplexity and side-by-side generation
 scripts/    environment setup, GPU verification, the full runbook
-tests/      96 tests, no GPU and no pytest required
+tests/      118 tests, no GPU and no pytest required
 ```
 
 ## Getting started
@@ -82,7 +82,9 @@ python -m data.prepare --all --out data/processed
 python -m data.train_tokenizer --shards data/processed --vocab 32768
 python -m data.tokenize_corpus --shards data/processed --out data/tokenized
 python -m core.train --data data/tokenized --out runs/base
+python -m data.fetch_post sft --target 50000 --out data/sft
 python -m post.sft --base runs/base/best.pt --data data/sft/train.jsonl --out runs/sft
+python -m data.fetch_post dpo --target 20000 --out data/dpo
 python -m post.dpo --sft runs/sft/sft.pt --data data/dpo/prefs.jsonl --out runs/dpo
 python -m export.to_gguf --ckpt runs/dpo/dpo.pt --out export/model-f16.gguf
 ```
@@ -113,10 +115,40 @@ duplicates are removed globally with a hash set; near-duplicates with MinHash
 millions of documents does not fit in 32 GB. The manifest records what each
 stage dropped and why.
 
+## Post-training data
+
+`data/fetch_post.py` builds both sets. Every public dataset uses a different
+schema, so each source declares an adapter that converts one raw row into our
+format; adapters are pure functions over a dict, which is what makes the whole
+conversion layer testable without a network connection.
+
+| Stage | Source | Share |
+|---|---|---|
+| SFT | OpenHermes-2.5 | 45% |
+| SFT | Tulu 3 SFT mixture | 25% |
+| SFT | Magicoder OSS-Instruct | 30% |
+| DPO | UltraFeedback (binarized) | 75% |
+| DPO | Orca DPO pairs | 25% |
+
+The 30% code share for SFT roughly tracks the 25% code share of pretraining —
+instruction tuning does not add capability the base model lacks, so the mix
+should look like what it was pretrained on.
+
+Quality rules drop conversations that do not end with an assistant turn, whose
+roles do not alternate, or whose answer opens with a refusal or "as an AI
+language model". Preference pairs whose chosen and rejected responses are
+identical are dropped outright — they contribute exactly zero gradient.
+Prompts are deduplicated across every source, because these datasets overlap
+heavily upstream.
+
+40–60k SFT examples and 15–25k preference pairs is the useful range at this
+scale. More does not help much; a small model saturates on instruction format
+quickly, and the mix matters far more than the count.
+
 ## Tests
 
 ```bash
-python tests/run_all.py            # 96 tests, ~12s on CPU
+python tests/run_all.py            # 118 tests, ~15s on CPU
 python tests/run_all.py --quick    # skip the integration suite
 python tests/run_all.py --only export
 ```
@@ -162,7 +194,7 @@ echo '{"id":"1","type":"generate","messages":[{"role":"user","content":"hi"}]}' 
 - [x] Data pipeline — filters, dedupe, sharding
 - [x] Tokenizer — byte-level BPE with reserved chat tokens
 - [x] Pretraining — checkpointing, resume, watchdog, MFU
-- [x] SFT and DPO
+- [x] SFT and DPO, with dataset fetch-and-convert scripts
 - [x] Sampler with KV cache; safetensors and GGUF export
 - [x] Sidecar and Electron front end
 - [ ] A real training run
