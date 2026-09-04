@@ -12,35 +12,137 @@
     <div class="identity">
       <span class="dot" id="status-dot" data-state="loading"></span>
       <span class="name">BananaAI</span>
-      <span class="meta" id="model-meta">starting the model…</span>
     </div>
-    <div class="controls">
-      <label class="control">
-        temperature
+
+    <nav class="tabs" role="tablist">
+      <button class="tab" id="tab-train" role="tab" aria-selected="true"
+              aria-controls="view-train" type="button">Train</button>
+      <button class="tab" id="tab-chat" role="tab" aria-selected="false"
+              aria-controls="view-chat" type="button">Chat</button>
+    </nav>
+
+    <span class="meta" id="header-meta">starting…</span>
+  </header>
+
+  <!-- ================= TRAIN ================= -->
+  <main class="view" id="view-train" role="tabpanel" aria-labelledby="tab-train">
+    <div class="train-grid">
+
+      <section class="panel" id="machine-panel">
+        <h2>Your machine</h2>
+        <dl class="facts" id="machine-facts">
+          <div><dt>Device</dt><dd id="fact-device">detecting…</dd></div>
+          <div><dt>Model size</dt><dd id="fact-preset">—</dd></div>
+          <div><dt>Parameters</dt><dd id="fact-params">—</dd></div>
+          <div><dt>Estimated time</dt><dd id="fact-hours">—</dd></div>
+        </dl>
+        <ul class="warnings" id="machine-warnings"></ul>
+        <p class="hint">
+          The size is chosen to finish in a reasonable time on this hardware.
+          Edit <code>bananaai.toml</code> to override it.
+        </p>
+      </section>
+
+      <section class="panel" id="stages-panel">
+        <h2>What to run</h2>
+        <ul class="stages" id="stage-list">
+          <li><label><input type="checkbox" value="data" checked>
+            <span class="stage-name">Collect data</span>
+            <span class="stage-note">download and clean a corpus</span></label></li>
+          <li><label><input type="checkbox" value="tokenizer" checked>
+            <span class="stage-name">Build tokenizer</span>
+            <span class="stage-note">learn a vocabulary from that corpus</span></label></li>
+          <li><label><input type="checkbox" value="tokenize" checked>
+            <span class="stage-name">Encode corpus</span>
+            <span class="stage-note">turn text into training tokens</span></label></li>
+          <li><label><input type="checkbox" value="pretrain" checked>
+            <span class="stage-name">Pretrain</span>
+            <span class="stage-note">the long one — teaches the model language</span></label></li>
+          <li><label><input type="checkbox" value="sft">
+            <span class="stage-name">Instruction tune</span>
+            <span class="stage-note">makes it answer rather than continue</span></label></li>
+          <li><label><input type="checkbox" value="dpo">
+            <span class="stage-name">Preference tune</span>
+            <span class="stage-note">polishes tone; optional</span></label></li>
+          <li><label><input type="checkbox" value="export">
+            <span class="stage-name">Export</span>
+            <span class="stage-note">GGUF weights other apps can load</span></label></li>
+        </ul>
+
+        <div class="folder-row">
+          <button id="pick-folder" class="ghost" type="button">Use my own documents…</button>
+          <span class="folder-path" id="folder-path"></span>
+        </div>
+
+        <div class="actions">
+          <button id="start-train" type="button">Start training</button>
+          <button id="stop-train" type="button" class="stop" hidden>Stop &amp; save</button>
+        </div>
+      </section>
+
+      <section class="panel wide" id="progress-panel">
+        <div class="progress-head">
+          <h2 id="progress-title">Not started</h2>
+          <span class="meta" id="progress-stage"></span>
+        </div>
+
+        <div class="track"><div class="fill" id="progress-fill"></div></div>
+
+        <div class="readouts">
+          <div class="readout"><span class="label">Step</span>
+            <span class="value" id="read-step">—</span></div>
+          <div class="readout"><span class="label">Loss</span>
+            <span class="value" id="read-loss">—</span></div>
+          <div class="readout"><span class="label">Val loss</span>
+            <span class="value" id="read-val">—</span></div>
+          <div class="readout"><span class="label">Speed</span>
+            <span class="value" id="read-speed">—</span></div>
+          <div class="readout"><span class="label">Time left</span>
+            <span class="value" id="read-eta">—</span></div>
+        </div>
+
+        <figure class="chart">
+          <canvas id="loss-chart" width="1200" height="260"></canvas>
+          <figcaption id="chart-caption">
+            Training loss. It should fall steeply at first, then flatten.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="panel wide" id="log-panel">
+        <h2>Log</h2>
+        <pre class="log" id="train-log" aria-live="polite"></pre>
+      </section>
+    </div>
+  </main>
+
+  <!-- ================= CHAT ================= -->
+  <main class="view" id="view-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
+    <div class="chat-controls">
+      <label class="control">temperature
         <input type="range" id="temperature" min="0" max="1.5" step="0.05" value="0.8">
         <output id="temperature-value">0.80</output>
       </label>
-      <label class="control">
-        max tokens
+      <label class="control">max tokens
         <input type="number" id="max-tokens" min="16" max="2048" step="16" value="256">
       </label>
       <button id="clear" class="ghost" type="button">Clear</button>
     </div>
-  </header>
 
-  <main id="transcript" class="transcript">
-    <div class="empty" id="empty-state">
-      <h1>Ask it something</h1>
-      <p>This model runs entirely on your machine. Nothing is sent anywhere.</p>
+    <div id="transcript" class="transcript">
+      <div class="empty" id="empty-state">
+        <h1>Ask it something</h1>
+        <p>This model runs entirely on your machine. Nothing is sent anywhere.</p>
+      </div>
+    </div>
+
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Send a message…"
+                autocomplete="off" spellcheck="false"></textarea>
+      <button id="send" type="button">Send</button>
+      <button id="stop" type="button" class="stop" hidden>Stop</button>
     </div>
   </main>
-
-  <footer class="composer">
-    <textarea id="input" rows="1" placeholder="Send a message…"
-              autocomplete="off" spellcheck="false"></textarea>
-    <button id="send" type="button">Send</button>
-    <button id="stop" type="button" class="stop" hidden>Stop</button>
-  </footer>
 
   <div id="toast" class="toast" hidden></div>
 

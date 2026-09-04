@@ -121,8 +121,16 @@ class Trainer:
         if overrides["peak_lr"]:
             tc.peak_lr = overrides["peak_lr"]
             tc.min_lr = overrides["peak_lr"] / 10
-        if overrides["ckpt_every"]:
-            tc.ckpt_every = overrides["ckpt_every"]
+        for key in ("ckpt_every", "total_steps", "micro_batch", "tokens_per_step"):
+            if overrides[key]:
+                setattr(tc, key, overrides[key])
+        tc.grad_clip = overrides["grad_clip"]
+        # Warmup and eval cadence must stay sensible relative to a shortened run.
+        tc.warmup_steps = max(1, min(tc.warmup_steps, tc.total_steps // 10))
+        tc.eval_every = max(1, min(tc.eval_every, max(1, tc.total_steps // 4)))
+        tc.ckpt_every = max(1, min(tc.ckpt_every, max(1, tc.total_steps // 2)))
+        # grad_accum_steps raises if these do not divide evenly.
+        tc.grad_accum_steps(plan.model.context_len)
 
         return run_train(
             plan.model, tc,
@@ -144,12 +152,13 @@ class Trainer:
         cfg = self.settings["sft"]
         if not cfg["enabled"]:
             return {"skipped": "sft.enabled is false"}
-        data = Path("data/sft/train.jsonl")
+        data = Path(cfg["data"])
         if not data.exists():
-            fetch_main(["sft", "--target", str(cfg["target"]), "--out", "data/sft"])
+            fetch_main(["sft", "--target", str(cfg["target"]),
+                        "--out", str(data.parent)])
         return run_sft(
             Path(self.settings["train"]["out_dir"]) / "best.pt", data,
-            Path("runs/sft"), Path("tokenizer.json"),
+            Path(cfg["out_dir"]), Path("tokenizer.json"),
             epochs=cfg["epochs"], batch_size=cfg["batch_size"], lr=cfg["lr"],
         )
 
@@ -160,11 +169,13 @@ class Trainer:
         cfg = self.settings["dpo"]
         if not cfg["enabled"]:
             return {"skipped": "dpo.enabled is false"}
-        data = Path("data/dpo/prefs.jsonl")
+        data = Path(cfg["data"])
         if not data.exists():
-            fetch_main(["dpo", "--target", str(cfg["target"]), "--out", "data/dpo"])
+            fetch_main(["dpo", "--target", str(cfg["target"]),
+                        "--out", str(data.parent)])
         return run_dpo(
-            Path("runs/sft/sft.pt"), data, Path("runs/dpo"), Path("tokenizer.json"),
+            Path(self.settings["sft"]["out_dir"]) / "sft.pt", data,
+            Path(cfg["out_dir"]), Path("tokenizer.json"),
             beta=cfg["beta"], epochs=cfg["epochs"],
             batch_size=cfg["batch_size"], lr=cfg["lr"],
         )
@@ -174,23 +185,32 @@ class Trainer:
         from export.to_safetensors import convert as to_safetensors
 
         cfg = self.settings["export"]
-        for candidate in (Path("runs/dpo/dpo.pt"), Path("runs/sft/sft.pt"),
-                          Path(self.settings["train"]["out_dir"]) / "best.pt"):
+        # Most-finished stage first, but only among the directories this
+        # configuration actually writes to. Scanning fixed paths picked up
+        # stale checkpoints from unrelated runs and exported those instead.
+        candidates = [
+            Path(self.settings["dpo"]["out_dir"]) / "dpo.pt",
+            Path(self.settings["sft"]["out_dir"]) / "sft.pt",
+            Path(self.settings["train"]["out_dir"]) / "best.pt",
+        ]
+        for candidate in candidates:
             if candidate.exists():
                 ckpt = candidate
                 break
         else:
-            raise RuntimeError("no checkpoint to export -- train something first")
+            searched = ", ".join(str(c) for c in candidates)
+            raise RuntimeError(f"no checkpoint to export -- looked in {searched}")
 
+        out_dir = Path(cfg["out_dir"])
         out: dict = {"checkpoint": str(ckpt)}
         name = self.settings["project"]["name"]
         if cfg["safetensors"]:
             out["safetensors"] = to_safetensors(
-                ckpt, Path("export/model"), cfg["dtype"], Path("tokenizer.json"))
+                ckpt, out_dir / "model", cfg["dtype"], Path("tokenizer.json"))
         if cfg["gguf"]:
             gguf_dtype = "float16" if cfg["dtype"] == "bfloat16" else cfg["dtype"]
             out["gguf"] = to_gguf(ckpt, Path("tokenizer.json"),
-                                  Path(f"export/{name}-{gguf_dtype}.gguf"),
+                                  out_dir / f"{name}-{gguf_dtype}.gguf",
                                   gguf_dtype, name)
         return out
 

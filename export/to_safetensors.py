@@ -79,10 +79,35 @@ def hf_config(mc: ModelConfig, dtype: str = "float32") -> dict:
     }
 
 
+def check_tokenizer_matches(mc, tokenizer_path) -> None:
+    """Refuse to export a model paired with a tokenizer it was not trained on.
+
+    Nothing else catches this. The shapes are compatible, the file writes
+    cleanly and the result loads in llama.cpp -- it simply generates the wrong
+    characters, because token id 4013 in the vocabulary is not what the
+    embedding at row 4013 learned. It is exactly the sort of mismatch a
+    pipeline produces when a tokenizer is rebuilt without retraining.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    path = _Path(tokenizer_path)
+    if not path.exists():
+        raise FileNotFoundError(f"no tokenizer at {path}")
+    vocab = len(_json.loads(path.read_text(encoding="utf-8"))["model"]["vocab"])
+    if vocab > mc.vocab_size:
+        raise ValueError(
+            f"tokenizer has {vocab} tokens but the model was trained with "
+            f"{mc.vocab_size}; these do not belong together"
+        )
+
+
 def convert(ckpt_path: Path, out_dir: Path, dtype: str = "float32",
             tokenizer_path: Path | None = None) -> dict:
     state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     mc = ModelConfig(**state["model_config"])
+    if tokenizer_path:
+        check_tokenizer_matches(mc, tokenizer_path)
     weights = state["model"]
 
     torch_dtype = {"float32": torch.float32, "float16": torch.float16,

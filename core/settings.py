@@ -61,9 +61,17 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "grad_clip": 1.0,
         "spike_factor": 3.0,
         "ckpt_every": 0,            # 0 lets the auto-planner decide
+        # All 0 = let the planner size the batch schedule. Setting them is how
+        # you get a genuinely quick run: shrinking the step count alone still
+        # leaves half a million tokens per step.
+        "total_steps": 0,
+        "micro_batch": 0,
+        "tokens_per_step": 0,
     },
     "sft": {
         "enabled": True,
+        "out_dir": "runs/sft",
+        "data": "data/sft/train.jsonl",
         "target": 50_000,
         "epochs": 3,
         "batch_size": 8,
@@ -71,6 +79,8 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "dpo": {
         "enabled": True,
+        "out_dir": "runs/dpo",
+        "data": "data/dpo/prefs.jsonl",
         "target": 20_000,
         "beta": 0.1,
         "epochs": 1,
@@ -78,6 +88,9 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "lr": 5e-7,
     },
     "export": {
+        # Not "export": that is the name of the Python package that does the
+        # exporting, and writing artifacts there shadows the module.
+        "out_dir": "artifacts",
         "safetensors": True,
         "gguf": True,
         "dtype": "float16",
@@ -294,15 +307,32 @@ class Settings:
 
     def plan(self):
         """Build a hardware Plan from this configuration."""
-        from .hardware import detect, recommend
+        from .hardware import detect, recommend, training_memory_gb
 
-        return recommend(
+        plan = recommend(
             device=detect(self.device_preference()),
             vocab_size=self.data["model"]["vocab_size"],
             max_hours=self.data["hardware"]["max_hours"],
             preset=self.preset_preference(),
             mfu=self.data["hardware"]["mfu"],
         )
+
+        # An explicit context length overrides the preset's. It has to be
+        # applied here rather than left to the caller: the batch schedule is
+        # derived from it, and a mismatch makes tokens_per_step stop dividing
+        # evenly by micro_batch * context_len.
+        override = self.data["model"]["context_len"]
+        if override and override != plan.model.context_len:
+            plan.model.context_len = override
+            per_micro = plan.train.micro_batch * override
+            accum = max(1, round(plan.train.tokens_per_step / per_micro))
+            plan.train.tokens_per_step = per_micro * accum
+            plan.memory = training_memory_gb(
+                plan.model, plan.train.micro_batch, plan.device.supports_bf16)
+            plan.warnings.append(
+                f"context length overridden to {override} from the preset's default; "
+                f"batch re-derived to {plan.train.tokens_per_step:,} tokens/step")
+        return plan
 
 
 def write_default(path: Path, plan=None) -> Path:

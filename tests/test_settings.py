@@ -208,6 +208,55 @@ def settings_produce_a_usable_plan():
     return f"config -> plan: {plan.preset}, {plan.estimated_hours:.0f}h"
 
 
+
+
+@test
+def an_explicit_context_length_overrides_the_preset():
+    """The batch schedule is derived from it, so it must be applied in plan()."""
+    s = Settings({k: dict(v) for k, v in DEFAULTS.items()})
+    s.data["hardware"]["device"] = "cpu"
+    s.data["model"]["preset"] = "nano"
+    s.data["model"]["context_len"] = 128
+
+    plan = s.plan()
+    assert plan.model.context_len == 128, \
+        f"context_len {plan.model.context_len} -- the override was ignored"
+    per_micro = plan.train.micro_batch * 128
+    assert plan.train.tokens_per_step % per_micro == 0, \
+        "batch schedule no longer divides evenly after the override"
+    plan.train.grad_accum_steps(plan.model.context_len)      # raises if inconsistent
+    assert any("context length overridden" in w for w in plan.warnings)
+    return f"128 applied, {plan.train.tokens_per_step:,} tokens/step re-derived"
+
+
+@test
+def zero_context_length_keeps_the_preset_default():
+    s = Settings({k: dict(v) for k, v in DEFAULTS.items()})
+    s.data["hardware"]["device"] = "cpu"
+    s.data["model"]["preset"] = "small"
+    s.data["model"]["context_len"] = 0
+    plan = s.plan()
+    from core.hardware import LADDER
+    assert plan.model.context_len == dict(LADDER)["small"]["context_len"]
+    return f"0 means inherit ({plan.model.context_len})"
+
+
+@test
+def the_export_directory_does_not_shadow_the_package():
+    """A default of "export" would write artifacts over the export/ package."""
+    assert DEFAULTS["export"]["out_dir"] != "export", \
+        "export.out_dir shadows the Python package that does the exporting"
+    return f"artifacts go to {DEFAULTS['export']['out_dir']}/"
+
+
+@test
+def every_stage_directory_is_configurable():
+    for section in ("train", "sft", "dpo", "export", "data"):
+        assert "out_dir" in DEFAULTS[section], f"[{section}] has no out_dir"
+    assert "data" in DEFAULTS["sft"] and "data" in DEFAULTS["dpo"]
+    return "train, sft, dpo, export and data all have configurable outputs"
+
+
 if __name__ == "__main__":
     p, n = suite.run()
     raise SystemExit(0 if p == n else 1)

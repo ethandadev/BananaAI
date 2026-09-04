@@ -226,6 +226,47 @@ def float16_export_halves_the_file():
     return f"{f32}MB f32 -> {f16}MB f16"
 
 
+
+
+@test
+def a_mismatched_tokenizer_is_refused():
+    """Shapes stay compatible, so nothing else catches this."""
+    from export.to_gguf import check_tokenizer_matches
+
+    with temp_dir() as tmp:
+        path, _ = checkpoint(tmp)
+        # A tokenizer with more tokens than the model has embedding rows.
+        big = train_tokenizer(
+            [f"document {i} about models tokens gradients and training loops"
+             for i in range(400)] + [f"def f{i}(x):\n    return x + {i}\n" for i in range(200)],
+            vocab_size=TINY.vocab_size + 400, min_frequency=1)
+        big_path = tmp / "big.json"
+        big.save(str(big_path))
+
+        try:
+            to_gguf(path, big_path, tmp / "bad.gguf")
+        except ValueError as e:
+            assert "do not belong together" in str(e), str(e)
+        else:
+            raise AssertionError("exported a model with the wrong tokenizer")
+
+        # And the matching one still works.
+        check_tokenizer_matches(TINY, tokenizer_file(tmp))
+    return "a larger vocabulary than the model was trained on is rejected"
+
+
+@test
+def a_missing_tokenizer_is_reported_clearly():
+    from export.to_gguf import check_tokenizer_matches
+
+    try:
+        check_tokenizer_matches(TINY, Path("no-such-tokenizer.json"))
+    except FileNotFoundError as e:
+        assert "no tokenizer at" in str(e)
+        return "a missing tokenizer raises FileNotFoundError"
+    raise AssertionError("accepted a missing tokenizer")
+
+
 if __name__ == "__main__":
     p, n = suite.run()
     raise SystemExit(0 if p == n else 1)
