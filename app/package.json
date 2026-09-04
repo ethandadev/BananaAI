@@ -1,7 +1,7 @@
 {
-  "name": "llm-desktop",
+  "name": "bananaai",
   "version": "0.1.0",
-  "description": "Desktop chat interface for a locally trained language model",
+  "description": "Train and run your own language model on your own hardware",
   "license": "MIT",
   "main": "main.js",
   "scripts": {
@@ -14,9 +14,15 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "dev.local.llm",
-    "productName": "LLM",
-    "files": ["main.js", "preload.js", "renderer/**/*"],
-    "win": { "target": "nsis" }
+    "appId": "dev.bananaai.app",
+    "productName": "BananaAI",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   }
 }

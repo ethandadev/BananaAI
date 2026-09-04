@@ -91,7 +91,7 @@ def convert(
     tokenizer_path: Path,
     out_path: Path,
     dtype: str = "float16",
-    name: str = "llm-327m",
+    name: str = "bananaai-327m",
 ) -> dict:
     state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     mc = ModelConfig(**state["model_config"])
@@ -160,7 +160,7 @@ def main(argv=None) -> int:
     p.add_argument("--tokenizer", type=Path, default=Path("tokenizer.json"))
     p.add_argument("--out", type=Path, default=Path("export/model-f16.gguf"))
     p.add_argument("--dtype", default="float16", choices=("float16", "float32"))
-    p.add_argument("--name", default="llm-327m")
+    p.add_argument("--name", default="bananaai-327m")
     args = p.parse_args(argv)
     print(json.dumps(convert(args.ckpt, args.tokenizer, args.out, args.dtype, args.name), indent=2))
     return 0

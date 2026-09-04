@@ -79,7 +79,7 @@ async function send() {
   activeBubble.classList.add("streaming");
   setGenerating(true);
 
-  const id = await window.llm.send(messages, {
+  const id = await window.bananaai.send(messages, {
     temperature: Number(temperature.value),
     max_new_tokens: Number(maxTokens.value),
     top_p: 0.95,
@@ -111,7 +111,7 @@ function finish(event) {
   setGenerating(false);
 }
 
-window.llm.onEvent((event) => {
+window.bananaai.onEvent((event) => {
   switch (event.type) {
     case "ready": {
       ready = true;
@@ -139,13 +139,13 @@ window.llm.onEvent((event) => {
   }
 });
 
-window.llm.onError((payload) => {
+window.bananaai.onError((payload) => {
   setStatus("error", "model unavailable");
   showToast(payload.message, 12000);
   setGenerating(false);
 });
 
-window.llm.onExit(({ code }) => {
+window.bananaai.onExit(({ code }) => {
   ready = false;
   setStatus("error", `model process exited (${code})`);
   setGenerating(false);
@@ -153,13 +153,13 @@ window.llm.onExit(({ code }) => {
 
 // stderr is where Python tracebacks land; surface the first line rather than
 // leaving the user with a silent failure.
-window.llm.onLog(({ text }) => {
+window.bananaai.onLog(({ text }) => {
   const line = text.trim().split("\n").pop();
   if (line && /error|traceback|exception/i.test(line)) showToast(line, 10000);
 });
 
 sendBtn.addEventListener("click", send);
-stopBtn.addEventListener("click", () => window.llm.cancel());
+stopBtn.addEventListener("click", () => window.bananaai.cancel());
 clearBtn.addEventListener("click", () => {
   messages = [];
   transcript.querySelectorAll(".turn").forEach((n) => n.remove());

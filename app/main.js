@@ -5,7 +5,7 @@
 // child process directly -- it talks over IPC through a preload bridge with
 // contextIsolation on, so page code cannot reach Node APIs.
 
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -107,12 +107,16 @@ function write(obj) {
 }
 
 function createWindow() {
+  // Electron installs a stock File/Edit/View/Window menu by default. None of
+  // it applies here, so it is removed rather than left as dead chrome.
+  Menu.setApplicationMenu(null);
+
   win = new BrowserWindow({
     width: 1000,
     height: 760,
     minWidth: 560,
     backgroundColor: "#14161b",
-    title: "LLM",
+    title: "BananaAI",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

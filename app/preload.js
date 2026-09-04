@@ -3,7 +3,7 @@
 
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("llm", {
+contextBridge.exposeInMainWorld("bananaai", {
   send: (messages, params) => ipcRenderer.invoke("chat:send", { messages, params }),
   cancel: () => ipcRenderer.invoke("chat:cancel"),
   info: () => ipcRenderer.invoke("chat:info"),
