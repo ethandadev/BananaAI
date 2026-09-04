@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 FAST = [
+    "tests.test_trainer",
     "tests.test_custom",
     "tests.test_settings",
     "tests.test_hardware",

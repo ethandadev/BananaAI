@@ -22,6 +22,7 @@ import math
 import os
 import signal
 import sys
+import threading
 import time
 from contextlib import nullcontext
 from dataclasses import asdict
@@ -137,7 +138,25 @@ def train(
     log_every: Optional[int] = None,
     spike_factor: float = 3.0,
     tokenizer_path: Optional[Path] = None,
+    on_event=None,
+    should_stop=None,
 ) -> dict:
+    """Train a model.
+
+    on_event(dict) receives structured progress -- setup, progress, eval,
+    checkpoint, sample, warning, done. It is how the desktop app follows a run
+    without scraping stderr.
+
+    should_stop() is polled once per step; returning True finishes the current
+    step, writes a checkpoint and exits cleanly. Killing the process instead
+    loses up to ckpt_every steps of work.
+    """
+    def emit(kind: str, **fields) -> None:
+        if on_event is not None:
+            try:
+                on_event({"type": kind, **fields})
+            except Exception:                      # noqa: BLE001
+                pass    # a broken listener must never take down a training run
     hw = pick_device(device)
     device = hw.torch_device
     torch.manual_seed(seed)
@@ -203,7 +222,12 @@ def train(
         print("\n[signal] finishing this step, then checkpointing", file=sys.stderr)
         stopping["now"] = True
 
-    signal.signal(signal.SIGINT, _stop)
+    # Only the main thread may install a signal handler. When train() runs on a
+    # worker thread -- which is how the desktop app drives it -- registering
+    # raises ValueError, so Ctrl-C handling is simply skipped there and the
+    # caller uses should_stop instead.
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, _stop)
 
     (Path(out_dir) / "config.json").write_text(
         json.dumps({"model": asdict(mc), "train": asdict(tc), "seed": seed}, indent=2),
@@ -216,6 +240,11 @@ def train(
         f"{tc.tokens_per_step:,} tokens/step, {len(train_ds):,} train tokens",
         file=sys.stderr,
     )
+    emit("setup", device=hw.describe(), device_kind=hw.kind,
+         parameters=raw_model.num_params(), total_steps=tc.total_steps,
+         start_step=start_step, tokens_per_step=tc.tokens_per_step,
+         train_tokens=len(train_ds), context_len=mc.context_len,
+         precision="bf16" if dtype is torch.bfloat16 else "fp32")
 
     model.train()
     recent_losses: list[float] = []
@@ -245,6 +274,9 @@ def train(
 
         if not math.isfinite(total_loss):
             print(f"[abort] non-finite loss at step {step}", file=sys.stderr)
+            emit("aborted", step=step,
+                 reason="loss became NaN or infinite -- resume from the last "
+                        "checkpoint with a lower learning rate")
             break
 
         if recent_losses:
@@ -255,6 +287,9 @@ def train(
                     f"resume from the last checkpoint with a lower LR",
                     file=sys.stderr,
                 )
+                emit("aborted", step=step,
+                     reason=f"loss spiked from {baseline:.3f} to {total_loss:.3f}; "
+                            f"resume from the last checkpoint with a lower learning rate")
                 break
         recent_losses.append(total_loss)
         if len(recent_losses) > 50:
@@ -275,6 +310,12 @@ def train(
                 writer.add_scalar("train/loss", total_loss, step)
                 writer.add_scalar("train/lr", lr, step)
                 writer.add_scalar("train/grad_norm", float(grad_norm), step)
+            remaining = tc.total_steps - step - 1
+            emit("progress", step=step, total_steps=tc.total_steps, loss=total_loss,
+                 lr=lr, grad_norm=float(grad_norm), seconds_per_step=dt,
+                 tokens_per_second=tc.tokens_per_step / dt if dt else 0.0,
+                 mfu=mfu, tokens_seen=tokens_done,
+                 eta_seconds=remaining * dt)
 
         is_best = False
         if step > 0 and step % tc.eval_every == 0:
@@ -282,11 +323,20 @@ def train(
             is_best = val < best_val
             best_val = min(best_val, val)
             print(f"step {step:>6}  val {val:.4f}{'  (best)' if is_best else ''}", file=sys.stderr)
+            emit("eval", step=step, val_loss=val, best=is_best,
+                 perplexity=math.exp(val) if val < 20 else None)
             if writer:
                 writer.add_scalar("val/loss", val, step)
 
         if tokenizer and step > 0 and step % tc.sample_every == 0:
             _log_sample(raw_model, tokenizer, device, step, writer)
+
+        # Poll for a stop request *before* deciding whether to checkpoint.
+        # Checking afterwards meant an app-requested stop exited without
+        # saving, discarding up to ckpt_every steps while printing that a
+        # checkpoint had been written.
+        if should_stop is not None and should_stop():
+            stopping["now"] = True
 
         if (step > 0 and step % tc.ckpt_every == 0) or is_best or stopping["now"]:
             ckpt.save(
@@ -304,9 +354,11 @@ def train(
                 step,
                 is_best,
             )
+            emit("checkpoint", step=step, best=is_best, out_dir=str(out_dir))
 
         if stopping["now"]:
-            print("[stop] checkpoint written", file=sys.stderr)
+            print(f"[stop] checkpoint written at step {step}", file=sys.stderr)
+            emit("stopped", step=step)
             break
 
     elapsed = time.perf_counter() - t_start
@@ -320,6 +372,7 @@ def train(
     (Path(out_dir) / "summary.json").write_text(json.dumps(final, indent=2), encoding="utf-8")
     if writer:
         writer.close()
+    emit("done", **final)
     return final
 
 
