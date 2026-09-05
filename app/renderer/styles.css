@@ -64,6 +64,7 @@ body {
   font-weight: 500;
   cursor: pointer;
 }
+.tab { transition: background 0.15s ease, color 0.15s ease; }
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { background: var(--raised); color: var(--ink); }
 .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -85,22 +86,34 @@ body {
 
 /* ---------------- train ---------------- */
 
-.train-grid {
+/* The page is width-capped and centred: at 2560px a fluid grid strands two
+   panels on the left with a third of the window empty beside them. */
+.page {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 20px;
+  scrollbar-gutter: stable;
+}
+
+.train-grid {
+  max-width: 1180px;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   gap: 16px;
-  align-content: start;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .train-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 17px 19px;
+  padding: 18px 20px;
   min-width: 0;
 }
 .panel.wide { grid-column: 1 / -1; }
@@ -128,9 +141,26 @@ body {
 .warnings { list-style: none; margin: 13px 0 0; padding: 0; display: grid; gap: 7px; }
 .warnings li {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
-  border-left: 2px solid var(--accent);
-  padding-left: 9px;
+  padding-left: 18px;
+  position: relative;
+}
+.warnings li::before {
+  content: "!";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1a0f0c;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
 }
 
 .hint { margin: 13px 0 0; font-size: 12px; color: var(--muted); }
@@ -155,7 +185,9 @@ body {
   border-radius: 7px;
   cursor: pointer;
 }
+.stages label { transition: background 0.12s ease; }
 .stages label:hover { background: var(--raised); }
+.stages label:focus-within { background: var(--raised); }
 .stages input { grid-row: span 2; accent-color: var(--accent); width: 15px; height: 15px; }
 .stages input:disabled { cursor: not-allowed; }
 
@@ -219,7 +251,12 @@ body {
   text-transform: uppercase;
   color: var(--muted);
 }
-.readout .value { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.readout .value {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .chart { margin: 0; }
 canvas { width: 100%; height: 260px; display: block; }
@@ -349,8 +386,10 @@ button {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: filter 0.15s ease, transform 0.08s ease, background 0.15s ease;
 }
 button:hover { filter: brightness(1.08); }
+button:active { transform: translateY(1px); }
 button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.stop { background: var(--bad); color: #fff; }
@@ -387,4 +426,57 @@ button.ghost:hover { color: var(--ink); border-color: var(--line-hi); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+
+/* ---------------- scrollbars ---------------- */
+/* The default Windows scrollbar is a bright slab against a dark panel. */
+
+* { scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--line-hi); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---------------- entrance ---------------- */
+/* Panels settle in once, from a visible resting state -- never parked at
+   opacity 0 waiting on an observer. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel { animation: settle 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .train-grid > .panel:nth-child(2) { animation-delay: 0.04s; }
+  .train-grid > .panel:nth-child(3) { animation-delay: 0.08s; }
+  .train-grid > .panel:nth-child(4) { animation-delay: 0.12s; }
+}
+
+@keyframes settle {
+  from { opacity: 0.55; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.turn { animation: rise 0.22s ease both; }
+@keyframes rise {
+  from { opacity: 0.4; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.toast { animation: rise 0.2s ease both; }
+
+/* A device name is long and unpredictable ("AMD Ryzen 7 9800X3D 8-Core
+   Processor, 15.6 GB, fp32 only"). Right-aligning it against a label orphans
+   the last word, so it gets its own full-width row instead. */
+.facts .fact-block { display: block; }
+.facts .fact-block dd {
+  text-align: left;
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
 }

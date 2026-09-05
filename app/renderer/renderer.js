@@ -17,9 +17,22 @@ function showToast(text, ms = 6000) {
   showToast.timer = setTimeout(() => { toast.hidden = true; }, ms);
 }
 
-function setStatus(state, text) {
-  statusDot.dataset.state = state;
-  if (text) headerMeta.textContent = text;
+// Both sidecars report status, so each owns its own line and the header shows
+// whichever belongs to the visible tab. Sharing one string meant the chat
+// process silently overwrote the training plan.
+const statusText = { train: "starting…", chat: "" };
+let currentTab = "train";
+
+function setStatus(which, state, text) {
+  if (text !== undefined) statusText[which] = text;
+  if (which === currentTab) {
+    statusDot.dataset.state = state;
+    headerMeta.textContent = statusText[which];
+  }
+}
+
+function refreshStatus() {
+  headerMeta.textContent = statusText[currentTab] || "";
 }
 
 // --------------------------------------------------------------- tabs
@@ -28,6 +41,8 @@ const views = { train: $("view-train"), chat: $("view-chat") };
 const tabs = { train: $("tab-train"), chat: $("tab-chat") };
 
 function showTab(name) {
+  currentTab = name;
+  refreshStatus();
   for (const [key, view] of Object.entries(views)) {
     view.hidden = key !== name;
     tabs[key].setAttribute("aria-selected", String(key === name));
@@ -143,7 +158,7 @@ window.bananaai.train.onEvent((event) => {
           li.textContent = w;
           warnings.append(li);
         });
-        setStatus("ready", `${event.preset} · ${event.device.split(",")[0]}`);
+        setStatus("train", "ready", `${event.preset} · ${event.device.split(",")[0]}`);
       }
       break;
     }
@@ -424,7 +439,7 @@ window.bananaai.chat.onEvent((event) => {
   switch (event.type) {
     case "ready":
       chatReady = true;
-      setStatus("ready",
+      setStatus("chat", "ready",
         `${(event.parameters / 1e6).toFixed(0)}M · ${event.stage} · ${event.device}`);
       break;
     case "token":
@@ -449,10 +464,10 @@ window.bananaai.chat.onError((payload) => {
     emptyState.querySelector("h1").textContent = "No model yet";
     emptyState.querySelector("p").textContent =
       "Train one on the Train tab, then come back here.";
-    setStatus("loading", "no model yet");
+    setStatus("chat", "loading", "no model yet");
     return;
   }
-  setStatus("error", "model unavailable");
+  setStatus("chat", "error", "model unavailable");
   showToast(payload.message, 12000);
   setGenerating(false);
 });

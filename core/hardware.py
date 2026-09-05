@@ -15,6 +15,7 @@ from __future__ import annotations
 import ctypes
 import math
 import platform
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -118,10 +119,44 @@ def detect(prefer: Optional[str] = None) -> Device:
     return _cpu_device()
 
 
+def cpu_name() -> str:
+    """A readable CPU name.
+
+    platform.processor() returns the marketing name on macOS but a family/model
+    string on Windows ("AMD64 Family 26 Model 68 Stepping 0") and often nothing
+    at all on Linux, so each platform gets its own lookup.
+    """
+    system = platform.system()
+    try:
+        if system == "Windows":
+            import winreg
+
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            with key:
+                name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+            return " ".join(name.split())
+        if system == "Linux":
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        if system == "Darwin":
+            import subprocess
+
+            out = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                 capture_output=True, text=True, timeout=5)
+            if out.returncode == 0 and out.stdout.strip():
+                return out.stdout.strip()
+    except Exception:                              # noqa: BLE001
+        pass
+    return platform.processor() or platform.machine() or "CPU"
+
+
 def _cpu_device() -> Device:
     return Device(
         kind="cpu",
-        name=platform.processor() or "CPU",
+        name=cpu_name(),
         memory_gb=_system_memory_gb() / 2,
         supports_bf16=False,
         peak_tflops=None,

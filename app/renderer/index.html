@@ -26,12 +26,13 @@
 
   <!-- ================= TRAIN ================= -->
   <main class="view" id="view-train" role="tabpanel" aria-labelledby="tab-train">
+    <div class="page">
     <div class="train-grid">
 
       <section class="panel" id="machine-panel">
         <h2>Your machine</h2>
         <dl class="facts" id="machine-facts">
-          <div><dt>Device</dt><dd id="fact-device">detecting…</dd></div>
+          <div class="fact-block"><dt>Device</dt><dd id="fact-device">detecting…</dd></div>
           <div><dt>Model size</dt><dd id="fact-preset">—</dd></div>
           <div><dt>Parameters</dt><dd id="fact-params">—</dd></div>
           <div><dt>Estimated time</dt><dd id="fact-hours">—</dd></div>
@@ -102,7 +103,7 @@
         </div>
 
         <figure class="chart">
-          <canvas id="loss-chart" width="1200" height="260"></canvas>
+          <canvas id="loss-chart"></canvas>
           <figcaption id="chart-caption">
             Training loss. It should fall steeply at first, then flatten.
           </figcaption>
@@ -113,6 +114,7 @@
         <h2>Log</h2>
         <pre class="log" id="train-log" aria-live="polite"></pre>
       </section>
+      </div>
     </div>
   </main>
 
